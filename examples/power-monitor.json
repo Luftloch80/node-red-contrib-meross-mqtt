@@ -1,0 +1,9 @@
+[
+    { "id": "a1c0ffee00000001", "type": "meross-config", "name": "Meross Cloud", "mode": "cloud", "region": "eu", "apiUrl": "", "mqttHost": "", "broker": "", "timeout": 10 },
+    { "id": "a1c0ffee00000002", "type": "inject", "name": "read now", "props": [{ "p": "payload" }], "repeat": "", "once": false, "payload": "", "payloadType": "date", "x": 120, "y": 80, "wires": [["a1c0ffee00000004"]] },
+    { "id": "a1c0ffee00000003", "type": "inject", "name": "toggle", "props": [{ "p": "payload" }], "repeat": "", "once": false, "payload": "toggle", "payloadType": "str", "x": 110, "y": 140, "wires": [["a1c0ffee00000004"]] },
+    { "id": "a1c0ffee00000004", "type": "meross-plug", "name": "Washing machine", "server": "a1c0ffee00000001", "uuid": "", "host": "", "channel": 0, "interval": 30, "electricity": true, "consumption": true, "state": true, "push": true, "x": 330, "y": 110, "wires": [["a1c0ffee00000005", "a1c0ffee00000006"]] },
+    { "id": "a1c0ffee00000005", "type": "debug", "name": "all data", "active": true, "tosidebar": true, "complete": "payload", "x": 540, "y": 80, "wires": [] },
+    { "id": "a1c0ffee00000006", "type": "change", "name": "power [W]", "rules": [{ "t": "set", "p": "payload", "pt": "msg", "to": "payload.power", "tot": "msg" }], "x": 540, "y": 140, "wires": [["a1c0ffee00000007"]] },
+    { "id": "a1c0ffee00000007", "type": "debug", "name": "power", "active": true, "tosidebar": true, "complete": "payload", "x": 720, "y": 140, "wires": [] }
+]

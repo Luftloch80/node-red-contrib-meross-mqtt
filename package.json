@@ -1,0 +1,44 @@
+{
+  "name": "node-red-contrib-meross-mqtt",
+  "version": "0.1.0",
+  "description": "Node-RED nodes to read power measurement data (power, voltage, current, energy) from Meross smart plugs via Meross cloud MQTT, a local MQTT broker or local HTTP",
+  "main": "nodes/meross-plug.js",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "keywords": [
+    "node-red",
+    "meross",
+    "mqtt",
+    "smart plug",
+    "power",
+    "energy",
+    "mss310"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "node-red": {
+    "version": ">=3.0.0",
+    "nodes": {
+      "meross-config": "nodes/meross-config.js",
+      "meross-plug": "nodes/meross-plug.js"
+    }
+  },
+  "files": [
+    "lib/",
+    "nodes/",
+    "README.md",
+    "LICENSE",
+    "examples/"
+  ],
+  "dependencies": {
+    "mqtt": "^5.16.0"
+  },
+  "devDependencies": {
+    "aedes": "^1.2.0",
+    "node-red": "^5.0.7",
+    "node-red-node-test-helper": "^0.3.6"
+  }
+}

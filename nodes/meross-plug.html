@@ -1,0 +1,160 @@
+<script type="text/javascript">
+    RED.nodes.registerType('meross-plug', {
+        category: 'network',
+        color: '#8FD694',
+        defaults: {
+            name: { value: '' },
+            server: { value: '', type: 'meross-config', required: true },
+            uuid: { value: '' },
+            host: { value: '' },
+            channel: { value: 0, validate: RED.validators.number() },
+            interval: { value: 30, validate: RED.validators.number() },
+            electricity: { value: true },
+            consumption: { value: false },
+            state: { value: true },
+            push: { value: true }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: 'font-awesome/fa-plug',
+        paletteLabel: 'meross plug',
+        label: function () {
+            return this.name || this.uuid || this.host || 'meross plug';
+        },
+        oneditprepare: function () {
+            const node = this;
+            function loadDevices() {
+                const serverId = $('#node-input-server').val();
+                const select = $('#node-input-device-select');
+                select.empty().append($('<option>').val('').text('loading...'));
+                $.getJSON('meross-mqtt/devices/' + serverId)
+                    .done(function (devices) {
+                        select.empty().append($('<option>').val('').text('-- select device --'));
+                        devices.forEach(function (d) {
+                            select.append($('<option>')
+                                .val(d.uuid)
+                                .data('name', d.name)
+                                .text(d.name + ' (' + d.type + ')' + (d.online ? '' : ' [offline]')));
+                        });
+                        select.val($('#node-input-uuid').val());
+                    })
+                    .fail(function (xhr) {
+                        const err = xhr.responseJSON && xhr.responseJSON.error;
+                        select.empty().append($('<option>').val('').text(err || 'not available'));
+                    });
+            }
+            $('#node-input-device-refresh').on('click', loadDevices);
+            $('#node-input-device-select').on('change', function () {
+                const opt = $(this).find('option:selected');
+                if (opt.val()) {
+                    $('#node-input-uuid').val(opt.val());
+                    if (!$('#node-input-name').val()) {
+                        $('#node-input-name').val(opt.data('name'));
+                    }
+                }
+            });
+            function updateMode() {
+                const server = RED.nodes.node($('#node-input-server').val());
+                const mode = server ? server.mode : 'cloud';
+                $('.meross-device-list').toggle(mode === 'cloud');
+                $('.meross-host').toggle(mode === 'http');
+            }
+            $('#node-input-server').on('change', updateMode);
+            updateMode();
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="meross-plug">
+    <div class="form-row">
+        <label for="node-input-server"><i class="fa fa-cloud"></i> Connection</label>
+        <input type="text" id="node-input-server">
+    </div>
+    <div class="form-row meross-device-list">
+        <label for="node-input-device-select"><i class="fa fa-list"></i> Devices</label>
+        <select id="node-input-device-select" style="width: 60%"><option value="">(click refresh)</option></select>
+        <a id="node-input-device-refresh" class="red-ui-button"><i class="fa fa-refresh"></i></a>
+    </div>
+    <div class="form-row">
+        <label for="node-input-uuid"><i class="fa fa-barcode"></i> Device UUID</label>
+        <input type="text" id="node-input-uuid" placeholder="e.g. 2101234567890123456748e1e9xxxxxx">
+    </div>
+    <div class="form-row meross-host">
+        <label for="node-input-host"><i class="fa fa-sitemap"></i> IP / host</label>
+        <input type="text" id="node-input-host" placeholder="192.168.1.50">
+    </div>
+    <div class="form-row">
+        <label for="node-input-channel"><i class="fa fa-random"></i> Channel</label>
+        <input type="text" id="node-input-channel" style="width: 80px">
+    </div>
+    <div class="form-row">
+        <label for="node-input-interval"><i class="fa fa-clock-o"></i> Poll (s)</label>
+        <input type="text" id="node-input-interval" style="width: 80px">
+        <span style="margin-left: 8px">0 = only on input</span>
+    </div>
+    <div class="form-row">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-electricity" style="width: auto; margin: 0 4px 0 0">
+        <label for="node-input-electricity" style="width: auto">Power, voltage, current</label>
+    </div>
+    <div class="form-row">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-consumption" style="width: auto; margin: 0 4px 0 0">
+        <label for="node-input-consumption" style="width: auto">Energy consumption (daily Wh)</label>
+    </div>
+    <div class="form-row">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-state" style="width: auto; margin: 0 4px 0 0">
+        <label for="node-input-state" style="width: auto">On/off state</label>
+    </div>
+    <div class="form-row">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-push" style="width: auto; margin: 0 4px 0 0">
+        <label for="node-input-push" style="width: auto">Output push events (MQTT)</label>
+    </div>
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="meross-plug">
+    <p>Reads power measurement data from a Meross smart plug (e.g. MSS310, MSS305, MSS315) and can switch it.</p>
+
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt>payload <span class="property-type">any</span></dt>
+        <dd>Any message triggers a read. <code>true</code>/<code>false</code>, <code>"on"</code>/<code>"off"</code>,
+            <code>1</code>/<code>0</code> or <code>"toggle"</code> switch the plug first.</dd>
+        <dt class="optional">namespace <span class="property-type">string</span></dt>
+        <dd>Send a raw request, e.g. <code>Appliance.System.All</code>. <code>msg.method</code> (default <code>GET</code>)
+            and <code>msg.payload</code> (object) are used as request; the response payload is returned.</dd>
+    </dl>
+
+    <h3>Outputs</h3>
+    <dl class="message-properties">
+        <dt>payload <span class="property-type">object</span></dt>
+        <dd>
+            <ul>
+                <li><code>power</code> – active power in W</li>
+                <li><code>voltage</code> – voltage in V</li>
+                <li><code>current</code> – current in A</li>
+                <li><code>onoff</code> – switch state (<code>true</code>/<code>false</code>)</li>
+                <li><code>energyToday</code> – energy used today in Wh (if consumption is enabled)</li>
+                <li><code>consumption</code> – array of <code>{date, energy}</code> per day, energy in Wh</li>
+                <li><code>channel</code>, <code>timestamp</code></li>
+            </ul>
+        </dd>
+        <dt>topic <span class="property-type">string</span></dt>
+        <dd>Node name, or the device UUID.</dd>
+        <dt>device <span class="property-type">object</span></dt>
+        <dd><code>uuid</code>, <code>host</code>, <code>channel</code>, <code>name</code>.</dd>
+        <dt class="optional">event <span class="property-type">string</span></dt>
+        <dd><code>"push"</code> if the message was triggered by a state change reported by the device.</dd>
+    </dl>
+
+    <h3>Details</h3>
+    <p>With a poll interval &gt; 0 the node reads the values periodically. Keep the interval moderate
+       (≥ 10 s) when using the Meross cloud to avoid being rate-limited.</p>
+    <p>For cloud connections, deploy the connection first, then use the refresh button to pick a device.</p>
+</script>

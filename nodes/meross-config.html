@@ -1,0 +1,128 @@
+<script type="text/javascript">
+    RED.nodes.registerType('meross-config', {
+        category: 'config',
+        defaults: {
+            name: { value: '' },
+            mode: { value: 'cloud', required: true },
+            region: { value: 'eu' },
+            apiUrl: { value: '' },
+            mqttHost: { value: '' },
+            broker: { value: '' },
+            timeout: { value: 10, validate: RED.validators.number() }
+        },
+        credentials: {
+            email: { type: 'text' },
+            password: { type: 'password' },
+            mqttUser: { type: 'text' },
+            mqttPassword: { type: 'password' },
+            key: { type: 'password' }
+        },
+        label: function () {
+            if (this.name) {
+                return this.name;
+            }
+            if (this.mode === 'mqtt') {
+                return 'Meross MQTT ' + (this.broker || '');
+            }
+            if (this.mode === 'http') {
+                return 'Meross local HTTP';
+            }
+            return 'Meross Cloud (' + this.region + ')';
+        },
+        oneditprepare: function () {
+            function update() {
+                const mode = $('#node-config-input-mode').val();
+                $('.meross-cloud').toggle(mode === 'cloud');
+                $('.meross-mqtt').toggle(mode === 'mqtt');
+                $('.meross-key').toggle(mode !== 'cloud');
+                $('.meross-apiurl').toggle(mode === 'cloud' && $('#node-config-input-region').val() === 'custom');
+            }
+            $('#node-config-input-mode').on('change', update);
+            $('#node-config-input-region').on('change', update);
+            update();
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="meross-config">
+    <div class="form-row">
+        <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-config-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-mode"><i class="fa fa-exchange"></i> Connection</label>
+        <select id="node-config-input-mode">
+            <option value="cloud">Meross Cloud (MQTT)</option>
+            <option value="mqtt">Local MQTT broker</option>
+            <option value="http">Local HTTP (device IP)</option>
+        </select>
+    </div>
+
+    <div class="form-row meross-cloud">
+        <label for="node-config-input-email"><i class="fa fa-envelope"></i> E-mail</label>
+        <input type="text" id="node-config-input-email">
+    </div>
+    <div class="form-row meross-cloud">
+        <label for="node-config-input-password"><i class="fa fa-lock"></i> Password</label>
+        <input type="password" id="node-config-input-password">
+    </div>
+    <div class="form-row meross-cloud">
+        <label for="node-config-input-region"><i class="fa fa-globe"></i> Region</label>
+        <select id="node-config-input-region">
+            <option value="eu">Europe (iotx-eu.meross.com)</option>
+            <option value="us">America (iotx-us.meross.com)</option>
+            <option value="ap">Asia/Pacific (iotx-ap.meross.com)</option>
+            <option value="custom">Custom API URL</option>
+        </select>
+    </div>
+    <div class="form-row meross-cloud meross-apiurl">
+        <label for="node-config-input-apiUrl"><i class="fa fa-link"></i> API URL</label>
+        <input type="text" id="node-config-input-apiUrl" placeholder="https://iotx-eu.meross.com">
+    </div>
+    <div class="form-row meross-cloud">
+        <label for="node-config-input-mqttHost"><i class="fa fa-server"></i> MQTT host</label>
+        <input type="text" id="node-config-input-mqttHost" placeholder="automatic (from login)">
+    </div>
+
+    <div class="form-row meross-mqtt">
+        <label for="node-config-input-broker"><i class="fa fa-server"></i> Broker</label>
+        <input type="text" id="node-config-input-broker" placeholder="mqtt://192.168.1.10:1883">
+    </div>
+    <div class="form-row meross-mqtt">
+        <label for="node-config-input-mqttUser"><i class="fa fa-user"></i> MQTT user</label>
+        <input type="text" id="node-config-input-mqttUser">
+    </div>
+    <div class="form-row meross-mqtt">
+        <label for="node-config-input-mqttPassword"><i class="fa fa-lock"></i> MQTT password</label>
+        <input type="password" id="node-config-input-mqttPassword">
+    </div>
+
+    <div class="form-row meross-key">
+        <label for="node-config-input-key"><i class="fa fa-key"></i> Device key</label>
+        <input type="password" id="node-config-input-key" placeholder="empty if paired without key">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-timeout"><i class="fa fa-clock-o"></i> Timeout (s)</label>
+        <input type="text" id="node-config-input-timeout" style="width: 80px">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="meross-config">
+    <p>Connection to Meross smart plugs.</p>
+    <h3>Connection types</h3>
+    <dl class="message-properties">
+        <dt>Meross Cloud (MQTT)</dt>
+        <dd>Logs in with your Meross account and talks to the devices through the Meross cloud MQTT broker.
+            The device list is available in the plug node after deploying.</dd>
+        <dt>Local MQTT broker</dt>
+        <dd>For devices that were paired to your own MQTT broker (e.g. Mosquitto). Requests are published to
+            <code>/appliance/&lt;uuid&gt;/subscribe</code>, pushes are read from <code>/appliance/+/publish</code>.
+            The <i>device key</i> is the key used during pairing.</dd>
+        <dt>Local HTTP</dt>
+        <dd>Polls each device directly via <code>http://&lt;ip&gt;/config</code>. Requires the device key
+            (for cloud-paired devices this is the <code>key</code> of your Meross account).</dd>
+    </dl>
+    <h3>Details</h3>
+    <p>Every message is signed with <code>md5(messageId + key + timestamp)</code>.
+       Cloud logins are cached in memory so redeploying does not log in again.</p>
+</script>
