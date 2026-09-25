@@ -142,7 +142,9 @@ module.exports = function (RED) {
                         deviceDomains.set(d.uuid, domain);
                     }
                     if (node.debug) {
-                        node.log('device ' + d.devName + ' ' + d.uuid + ' broker=' + domain + ' online=' + d.onlineStatus);
+                        node.log('device ' + d.devName + ' ' + d.uuid + ' type=' + d.deviceType +
+                            ' hw=' + d.hdwareVersion + ' fw=' + d.fmwareVersion + ' broker=' + domain +
+                            ' reservedBroker=' + d.reservedDomain + ' online=' + d.onlineStatus);
                     }
                 }
             } catch (err) {
@@ -150,6 +152,10 @@ module.exports = function (RED) {
             }
             if (closing) {
                 return;
+            }
+            if (node.debug) {
+                node.log('cloud login ok: userId=' + node.session.userId + ' mqttDomain=' + node.session.mqttDomain +
+                    ' api=' + node.session.baseUrl + ' devices=' + deviceDomains.size);
             }
             setState('connecting', 'mqtt');
             const hosts = new Set(node.mqttHost ? [node.mqttHost] : deviceDomains.values());
