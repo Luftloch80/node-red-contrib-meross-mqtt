@@ -97,8 +97,14 @@ aus `header.from`, Push-Meldungen kommen auf `/appliance/<uuid>/publish` (lokal)
 - **Rate-Limit**: Die Meross-Cloud drosselt zu häufige Anfragen. Im Cloud-Modus ein Intervall von mindestens 10–30 s wählen.
 - **Konten mit 2-Faktor-Authentifizierung** werden derzeit nicht unterstützt.
 - Einige neuere Firmware-Versionen verschlüsseln die lokale HTTP-API; dann bitte den MQTT- oder Cloud-Modus verwenden.
-- Im Cloud-Modus wird eine MQTT-Verbindung zum `mqttDomain` aus dem Login aufgebaut. Liegen Geräte auf einem
-  anderen Broker, kann dieser unter *MQTT host* eingetragen werden.
+- Die Meross-Cloud verteilt Geräte auf mehrere MQTT-Broker (`mqtt-eu-1.meross.com`, `mqtt-eu-2.meross.com`, …).
+  Im Cloud-Modus wird der Broker jedes Geräts aus der Geräteliste übernommen. *MQTT host* überschreibt das für alle Geräte.
+
+## Fehlersuche
+
+Antwortet eine Steckdose nicht (`Timeout waiting for ...`), in der Verbindung **Log all messages** aktivieren,
+deployen und auf dem Pi `node-red-log` aufrufen. Dort stehen die Geräteliste (UUID, Broker, online) sowie alle
+gesendeten (`->`) und empfangenen (`<-`) Nachrichten.
 
 ## Entwicklung
 

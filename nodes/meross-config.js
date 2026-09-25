@@ -21,13 +21,18 @@ module.exports = function (RED) {
         node.mqttHost = config.mqttHost;
         node.broker = config.broker;
         node.timeout = (parseInt(config.timeout, 10) || 10) * 1000;
+        node.debug = config.debug === true;
         node.events = new EventEmitter();
         node.events.setMaxListeners(0);
         node.state = 'disconnected';
-        node.transport = null;
         node.session = null;
 
         const creds = node.credentials || {};
+        // MQTT/HTTP transports by broker host. The Meross cloud spreads devices over
+        // several brokers (mqtt-eu-1, mqtt-eu-2, ...), so cloud mode may need more than one.
+        const transports = new Map();
+        const deviceDomains = new Map();
+        let cloudAppId = null;
         let closing = false;
 
         function setState(state, text) {
@@ -36,25 +41,42 @@ module.exports = function (RED) {
             node.events.emit('state', state, node.stateText);
         }
 
-        function attachTransport(transport) {
-            node.transport = transport;
+        function anyConnected() {
+            for (const t of transports.values()) {
+                if (t.connected) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function logTraffic(direction, topic, msg) {
+            node.log(direction + ' ' + (topic || '') + ' ' + JSON.stringify(msg));
+        }
+
+        function attachTransport(name, transport) {
+            transports.set(name, transport);
             transport.on('connect', () => {
+                if (node.debug) {
+                    node.log('connected to ' + name);
+                }
                 setState('connected');
                 node.events.emit('connect');
             });
             transport.on('close', () => {
-                if (!closing) {
+                if (!closing && !anyConnected()) {
                     setState('disconnected');
                 }
             });
             transport.on('error', (err) => {
-                node.warn('Meross: ' + err.message);
+                node.warn('Meross (' + name + '): ' + err.message);
                 setState('error', err.message);
             });
             transport.on('push', (uuid, namespace, payload) => {
                 node.events.emit('push', uuid, namespace, payload);
             });
             transport.connect();
+            return transport;
         }
 
         async function cloudLogin(force) {
@@ -74,34 +96,69 @@ module.exports = function (RED) {
             return session;
         }
 
-        async function startCloud() {
-            setState('connecting', 'login');
-            const session = await cloudLogin(false);
-            if (closing) {
-                return;
+        function cloudHostFor(uuid) {
+            return node.mqttHost || deviceDomains.get(uuid) || node.session.mqttDomain || 'mqtt-eu.meross.com';
+        }
+
+        function cloudTransport(host) {
+            if (transports.has(host)) {
+                return transports.get(host);
             }
-            node.session = session;
-            const appId = md5('API' + crypto.randomUUID());
-            let host = node.mqttHost || session.mqttDomain || 'mqtt-eu.meross.com';
-            if (!/^mqtts?:\/\//.test(host)) {
-                host = 'mqtts://' + host + (/:\d+$/.test(host) ? '' : ':443');
+            const session = node.session;
+            let url = host;
+            if (!/^mqtts?:\/\//.test(url)) {
+                url = 'mqtts://' + url + (/:\d+$/.test(url) ? '' : ':443');
             }
-            const responseTopic = '/app/' + session.userId + '-' + appId + '/subscribe';
-            setState('connecting', 'mqtt');
-            attachTransport(new MqttTransport({
-                url: host,
+            const responseTopic = '/app/' + session.userId + '-' + cloudAppId + '/subscribe';
+            return attachTransport(host, new MqttTransport({
+                url: url,
                 key: session.key,
                 responseTopic: responseTopic,
                 subscribeTopics: [responseTopic, '/app/' + session.userId + '/subscribe'],
                 timeout: node.timeout,
+                log: node.debug ? logTraffic : null,
                 mqttOptions: {
-                    clientId: 'app:' + appId,
+                    clientId: 'app:' + cloudAppId,
                     username: session.userId,
                     password: md5(session.userId + session.key),
                     protocolVersion: 4,
                     rejectUnauthorized: true
                 }
             }));
+        }
+
+        async function startCloud() {
+            setState('connecting', 'login');
+            node.session = await cloudLogin(false);
+            if (closing) {
+                return;
+            }
+            cloudAppId = md5('API' + crypto.randomUUID());
+            try {
+                const devices = await node.listDevices();
+                for (const d of devices || []) {
+                    const domain = d.domain || d.reservedDomain;
+                    if (domain) {
+                        deviceDomains.set(d.uuid, domain);
+                    }
+                    if (node.debug) {
+                        node.log('device ' + d.devName + ' ' + d.uuid + ' broker=' + domain + ' online=' + d.onlineStatus);
+                    }
+                }
+            } catch (err) {
+                node.warn('Meross: could not load device list: ' + err.message);
+            }
+            if (closing) {
+                return;
+            }
+            setState('connecting', 'mqtt');
+            const hosts = new Set(node.mqttHost ? [node.mqttHost] : deviceDomains.values());
+            if (hosts.size === 0) {
+                hosts.add(cloudHostFor(null));
+            }
+            for (const host of hosts) {
+                cloudTransport(host);
+            }
         }
 
         function startLocalMqtt() {
@@ -117,29 +174,57 @@ module.exports = function (RED) {
                 mqttOptions.password = creds.mqttPassword || '';
             }
             setState('connecting', 'mqtt');
-            attachTransport(new MqttTransport({
+            attachTransport(node.broker, new MqttTransport({
                 url: url,
                 key: creds.key || '',
                 responseTopic: responseTopic,
                 subscribeTopics: [responseTopic, '/appliance/+/publish'],
                 timeout: node.timeout,
+                log: node.debug ? logTraffic : null,
                 mqttOptions: mqttOptions
             }));
         }
 
         function startHttp() {
-            attachTransport(new HttpTransport({ key: creds.key || '', timeout: node.timeout }));
+            attachTransport('http', new HttpTransport({ key: creds.key || '', timeout: node.timeout, log: node.debug ? logTraffic : null }));
         }
 
-        node.request = function (device, method, namespace, payload) {
-            if (!node.transport) {
-                return Promise.reject(new Error('Meross connection not ready'));
+        function waitForConnect(transport) {
+            if (transport.connected) {
+                return Promise.resolve();
             }
-            return node.transport.request(device, method, namespace, payload, node.timeout);
+            return new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    transport.removeListener('connect', onConnect);
+                    reject(new Error('Not connected to MQTT broker ' + transport.url));
+                }, node.timeout);
+                function onConnect() {
+                    clearTimeout(timer);
+                    resolve();
+                }
+                transport.once('connect', onConnect);
+            });
+        }
+
+        node.request = async function (device, method, namespace, payload) {
+            let transport;
+            if (node.mode === 'cloud') {
+                if (!node.session || !cloudAppId) {
+                    throw new Error('Meross cloud login not finished');
+                }
+                transport = cloudTransport(cloudHostFor(device && device.uuid));
+                await waitForConnect(transport);
+            } else {
+                transport = transports.values().next().value;
+                if (!transport) {
+                    throw new Error('Meross connection not ready');
+                }
+            }
+            return transport.request(device, method, namespace, payload, node.timeout);
         };
 
         node.isConnected = function () {
-            return !!(node.transport && node.transport.connected);
+            return anyConnected();
         };
 
         node.listDevices = async function () {
@@ -173,10 +258,10 @@ module.exports = function (RED) {
 
         node.on('close', function (done) {
             closing = true;
-            const transport = node.transport;
-            node.transport = null;
+            const list = Array.from(transports.values());
+            transports.clear();
             node.events.removeAllListeners();
-            (transport ? transport.close() : Promise.resolve()).then(() => done(), () => done());
+            Promise.all(list.map((t) => t.close())).then(() => done(), () => done());
         });
     }
 
@@ -200,6 +285,7 @@ module.exports = function (RED) {
             const devices = await configNode.listDevices();
             res.json((devices || []).map((d) => ({
                 uuid: d.uuid,
+                domain: d.domain || d.reservedDomain,
                 name: d.devName,
                 type: d.deviceType,
                 online: d.onlineStatus === 1,

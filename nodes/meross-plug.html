@@ -34,7 +34,7 @@
                             select.append($('<option>')
                                 .val(d.uuid)
                                 .data('name', d.name)
-                                .text(d.name + ' (' + d.type + ')' + (d.online ? '' : ' [offline]')));
+                                .text(d.name + ' (' + d.type + (d.domain ? ', ' + d.domain : '') + ')' + (d.online ? '' : ' [offline]')));
                         });
                         select.val($('#node-input-uuid').val());
                     })

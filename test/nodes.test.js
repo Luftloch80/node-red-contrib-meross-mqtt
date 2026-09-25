@@ -168,3 +168,65 @@ test('local MQTT broker: polls, switches and forwards pushes', async () => {
         server.close();
     }
 });
+
+test('cloud: talks to the broker the device is assigned to, not the login mqttDomain', { timeout: 20000 }, async () => {
+    const { Aedes } = await import('aedes');
+    const brokerA = await Aedes.createBroker();
+    const brokerB = await Aedes.createBroker();
+    const serverA = net.createServer(brokerA.handle);
+    const serverB = net.createServer(brokerB.handle);
+    const portA = await listen(serverA);
+    const portB = await listen(serverB);
+    const cloudKey = 'cloudkey';
+    const device = new FakeDevice(UUID, cloudKey);
+
+    const api = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+            let out;
+            if (req.url === '/v1/Auth/signIn') {
+                out = { apiStatus: 0, data: { token: 't', key: cloudKey, userid: 42, email: 'x@y.z', mqttDomain: 'mqtt://127.0.0.1:' + portA } };
+            } else if (req.url === '/v1/Device/devList') {
+                out = { apiStatus: 0, data: [{ uuid: UUID, devName: 'Plug', onlineStatus: 1, domain: 'mqtt://127.0.0.1:' + portB }] };
+            }
+            res.end(JSON.stringify(out));
+        });
+    });
+    const apiPort = await listen(api);
+
+    const devClient = mqtt.connect('mqtt://127.0.0.1:' + portB);
+    await new Promise((resolve) => devClient.on('connect', resolve));
+    await devClient.subscribeAsync('/appliance/' + UUID + '/subscribe');
+    devClient.on('message', (topic, buf) => {
+        const req = JSON.parse(buf.toString());
+        assert.match(req.header.from, /^\/app\/42-[0-9a-f]{32}\/subscribe$/);
+        devClient.publish(req.header.from, JSON.stringify(device.handle(req)));
+    });
+
+    const flow = [
+        { id: 'cfg', type: 'meross-config', mode: 'cloud', region: 'custom', apiUrl: 'http://127.0.0.1:' + apiPort, timeout: 3 },
+        { id: 'plug', type: 'meross-plug', server: 'cfg', uuid: UUID, interval: 0, electricity: true, state: true, wires: [['out']] },
+        { id: 'out', type: 'helper' }
+    ];
+    try {
+        await helper.load([configNode, plugNode], flow, { cfg: { email: 'x@y.z', password: 'pw' } });
+        const cfg = helper.getNode('cfg');
+        if (!cfg.isConnected()) {
+            await new Promise((resolve) => cfg.events.once('connect', resolve));
+        }
+        const received = nextMessage(helper.getNode('out'));
+        helper.getNode('plug').receive({ payload: 'read' });
+        const msg = await received;
+        assert.strictEqual(msg.payload.power, 115.25);
+        assert.strictEqual(msg.payload.onoff, true);
+    } finally {
+        await helper.unload();
+        await devClient.endAsync(true);
+        await new Promise((resolve) => brokerA.close(resolve));
+        await new Promise((resolve) => brokerB.close(resolve));
+        serverA.close();
+        serverB.close();
+        api.close();
+    }
+});

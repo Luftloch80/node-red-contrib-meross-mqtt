@@ -8,7 +8,8 @@
             apiUrl: { value: '' },
             mqttHost: { value: '' },
             broker: { value: '' },
-            timeout: { value: 10, validate: RED.validators.number() }
+            timeout: { value: 10, validate: RED.validators.number() },
+            debug: { value: false }
         },
         credentials: {
             email: { type: 'text' },
@@ -105,6 +106,11 @@
         <label for="node-config-input-timeout"><i class="fa fa-clock-o"></i> Timeout (s)</label>
         <input type="text" id="node-config-input-timeout" style="width: 80px">
     </div>
+    <div class="form-row">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-config-input-debug" style="width: auto; margin: 0 4px 0 0">
+        <label for="node-config-input-debug" style="width: auto">Log all messages (node-red-log)</label>
+    </div>
 </script>
 
 <script type="text/html" data-help-name="meross-config">
@@ -125,4 +131,8 @@
     <h3>Details</h3>
     <p>Every message is signed with <code>md5(messageId + key + timestamp)</code>.
        Cloud logins are cached in memory so redeploying does not log in again.</p>
+    <p>The Meross cloud spreads devices over several MQTT brokers (<code>mqtt-eu-1.meross.com</code>, ...).
+       The broker of each device is taken from the device list; <i>MQTT host</i> overrides it for all devices.</p>
+    <p><i>Log all messages</i> writes every request and response to the Node-RED log
+       (<code>node-red-log</code>) – useful when a device does not answer.</p>
 </script>
