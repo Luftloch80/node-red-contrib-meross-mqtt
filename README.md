@@ -102,6 +102,9 @@ aus `header.from`, Push-Meldungen kommen auf `/appliance/<uuid>/publish` (lokal)
 
 - **Geräte-Key**: Bei Cloud-gekoppelten Geräten ist das der `key` des Meross-Kontos (wird beim Cloud-Login geliefert).
   Bei Geräten, die ohne Key an einen eigenen Broker gekoppelt wurden, bleibt das Feld leer.
+- **Verlorene Nachrichten**: Über die Meross-Cloud geht gelegentlich eine Anfrage oder Antwort verloren. Das Plugin
+  wiederholt eine Anfrage nach einem Timeout einmal automatisch. Bei periodischen Abfragen wird ein Fehler erst nach
+  3 Fehlschlägen am Stück gemeldet; davor zeigt der Node-Status nur „no answer (1/3)“.
 - **Rate-Limit**: Die Meross-Cloud drosselt zu häufige Anfragen. Im Cloud-Modus ein Intervall von mindestens 10–30 s wählen.
 - **Konten mit 2-Faktor-Authentifizierung** werden derzeit nicht unterstützt.
 - Einige neuere Firmware-Versionen verschlüsseln die lokale HTTP-API; dann bitte den MQTT- oder Cloud-Modus verwenden.

@@ -16,6 +16,11 @@ class FakeDevice {
     handle(msg) {
         const h = msg.header;
         this.requests.push(msg);
+        if (this.dropNext > 0) {
+            // simulate a message lost in the cloud
+            this.dropNext--;
+            return null;
+        }
         if (this.model === 'mop320') {
             return this.handleMop320(msg);
         }

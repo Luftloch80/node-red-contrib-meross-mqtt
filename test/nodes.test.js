@@ -282,6 +282,16 @@ test('MOP320: detects ElectricityX via abilities and probes the request format',
         assert.strictEqual(msg.payload.factor, 0.95);
         assert.strictEqual(msg.payload.energyToday, 10);
         assert.strictEqual(msg.payload.onoff, false);
+
+        // a lost message is retried transparently
+        device.dropNext = 1;
+        const before = device.requests.length;
+        received = nextMessage(out);
+        helper.getNode('out1').receive({ payload: 'read' });
+        msg = await received;
+        assert.strictEqual(msg.payload.voltage, 231.2);
+        assert.strictEqual(device.requests[before].header.messageId !== device.requests[before + 1].header.messageId, true);
+        assert.strictEqual(device.requests[before].header.namespace, device.requests[before + 1].header.namespace);
     } finally {
         await helper.unload();
         await devClient.endAsync(true);

@@ -4,6 +4,8 @@ const { NS, parseElectricity, parseElectricityX, parseConsumption, parseOnOff, l
 
 // Short timeout while probing request formats: some devices silently ignore payloads they don't understand
 const PROBE_TIMEOUT = 5000;
+// Periodic polls only report an error after this many consecutive timeouts (the Meross cloud drops messages now and then)
+const MAX_SILENT_FAILURES = 3;
 
 module.exports = function (RED) {
     function MerossPlugNode(config) {
@@ -34,6 +36,7 @@ module.exports = function (RED) {
         let abilities = null;
         let deviceChannels = [node.channel];
         let electricityXFormat = null;
+        let failures = 0;
         const last = {};
 
         if (!node.server) {
@@ -64,6 +67,18 @@ module.exports = function (RED) {
             return err && err.response && err.response.header && err.response.header.method === 'ERROR';
         }
 
+        async function request(method, namespace, payload, timeout) {
+            try {
+                return await node.server.request(node.device, method, namespace, payload, timeout);
+            } catch (err) {
+                // retry lost messages once, except while probing request formats
+                if (err.timeout && !timeout) {
+                    return node.server.request(node.device, method, namespace, payload);
+                }
+                throw err;
+            }
+        }
+
         function has(namespace) {
             // without ability information assume everything and rely on error fallbacks
             return !abilities || Object.keys(abilities).length === 0 || namespace in abilities;
@@ -75,7 +90,7 @@ module.exports = function (RED) {
             }
             let res;
             try {
-                res = await node.server.request(node.device, 'GET', NS.ABILITY, {});
+                res = await request('GET', NS.ABILITY, {});
             } catch (err) {
                 if (isUnsupported(err)) {
                     abilities = {};
@@ -100,7 +115,7 @@ module.exports = function (RED) {
             if (!has(NS.ELECTRICITY) && has(NS.ELECTRICITYX)) {
                 // newer devices (e.g. MOP320): learn the channel list from System.All
                 try {
-                    const all = await node.server.request(node.device, 'GET', NS.ALL, {});
+                    const all = await request('GET', NS.ALL, {});
                     const digest = all.payload && all.payload.all && all.payload.all.digest;
                     const tx = digest && digest.togglex;
                     if (tx) {
@@ -122,19 +137,19 @@ module.exports = function (RED) {
 
         async function readElectricityX() {
             if (electricityXFormat !== null) {
-                const res = await node.server.request(node.device, 'GET', NS.ELECTRICITYX, ELECTRICITYX_FORMATS[electricityXFormat]());
+                const res = await request('GET', NS.ELECTRICITYX, ELECTRICITYX_FORMATS[electricityXFormat]());
                 return parseElectricityX(res.payload);
             }
             // the request format of ElectricityX differs between devices: try the known variants
             let lastErr = null;
             for (let i = 0; i < ELECTRICITYX_FORMATS.length; i++) {
-                const request = ELECTRICITYX_FORMATS[i]();
+                const query = ELECTRICITYX_FORMATS[i]();
                 try {
-                    const res = await node.server.request(node.device, 'GET', NS.ELECTRICITYX, request, PROBE_TIMEOUT);
+                    const res = await request('GET', NS.ELECTRICITYX, query, PROBE_TIMEOUT);
                     const list = parseElectricityX(res.payload);
                     if (list.length) {
                         electricityXFormat = i;
-                        node.log('ElectricityX request format: ' + JSON.stringify(request));
+                        node.log('ElectricityX request format: ' + JSON.stringify(query));
                         return list;
                     }
                 } catch (err) {
@@ -171,7 +186,7 @@ module.exports = function (RED) {
 
         async function readElectricity() {
             if (has(NS.ELECTRICITY)) {
-                const res = await node.server.request(node.device, 'GET', NS.ELECTRICITY, { electricity: { channel: node.channel } });
+                const res = await request('GET', NS.ELECTRICITY, { electricity: { channel: node.channel } });
                 const e = parseElectricity(res.payload);
                 if (e) {
                     last.power = e.power;
@@ -188,10 +203,10 @@ module.exports = function (RED) {
         async function readConsumptionH() {
             let res;
             try {
-                res = await node.server.request(node.device, 'GET', NS.CONSUMPTIONH,
+                res = await request('GET', NS.CONSUMPTIONH,
                     { consumptionH: deviceChannels.map((c) => ({ channel: c })) }, PROBE_TIMEOUT);
             } catch (err) {
-                res = await node.server.request(node.device, 'GET', NS.CONSUMPTIONH, {});
+                res = await request('GET', NS.CONSUMPTIONH, {});
             }
             const list = (res.payload && res.payload.consumptionH) || [];
             const today = localDate(new Date());
@@ -215,7 +230,7 @@ module.exports = function (RED) {
             }
             let c;
             try {
-                const res = await node.server.request(node.device, 'GET', consumptionNs, {});
+                const res = await request('GET', consumptionNs, {});
                 c = parseConsumption(res.payload);
             } catch (err) {
                 if (isUnsupported(err) && consumptionNs === NS.CONSUMPTIONX) {
@@ -239,7 +254,7 @@ module.exports = function (RED) {
                 await readConsumption();
             }
             if (node.readState) {
-                const res = await node.server.request(node.device, 'GET', NS.ALL, {});
+                const res = await request('GET', NS.ALL, {});
                 const onoff = parseOnOff(res.payload, node.channel);
                 if (typeof onoff === 'boolean') {
                     last.onoff = onoff;
@@ -258,7 +273,7 @@ module.exports = function (RED) {
                 ? { togglex: { channel: node.channel, onoff: on ? 1 : 0 } }
                 : { toggle: { onoff: on ? 1 : 0 } };
             try {
-                await node.server.request(node.device, 'SET', toggleNs, payload);
+                await request('SET', toggleNs, payload);
             } catch (err) {
                 if (isUnsupported(err) && toggleNs === NS.TOGGLEX) {
                     toggleNs = NS.TOGGLE;
@@ -299,11 +314,17 @@ module.exports = function (RED) {
                 showValues();
                 const out = msg ? Object.assign(msg, makeMsg(data, { topic: msg.topic || label })) : makeMsg(data);
                 send(out);
+                failures = 0;
                 if (done) {
                     done();
                 }
             } catch (err) {
-                reportError(err, done);
+                failures++;
+                if (!msg && err.timeout && failures < MAX_SILENT_FAILURES) {
+                    node.status({ fill: 'yellow', shape: 'ring', text: 'no answer (' + failures + '/' + MAX_SILENT_FAILURES + ')' });
+                } else {
+                    reportError(err, done);
+                }
             } finally {
                 polling = false;
             }
@@ -335,7 +356,7 @@ module.exports = function (RED) {
             send = send || function () { node.send.apply(node, arguments); };
             try {
                 if (msg.namespace) {
-                    const res = await node.server.request(node.device, msg.method || 'GET', msg.namespace,
+                    const res = await request(msg.method || 'GET', msg.namespace,
                         typeof msg.payload === 'object' && msg.payload !== null ? msg.payload : {});
                     msg.payload = res.payload;
                     msg.response = res;
@@ -348,7 +369,7 @@ module.exports = function (RED) {
                     let on = cmd;
                     if (cmd === 'toggle') {
                         if (typeof last.onoff !== 'boolean') {
-                            const res = await node.server.request(node.device, 'GET', NS.ALL, {});
+                            const res = await request('GET', NS.ALL, {});
                             last.onoff = parseOnOff(res.payload, node.channel);
                         }
                         on = !last.onoff;
