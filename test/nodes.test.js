@@ -230,3 +230,62 @@ test('cloud: talks to the broker the device is assigned to, not the login mqttDo
         api.close();
     }
 });
+
+test('MOP320: detects ElectricityX via abilities and probes the request format', { timeout: 60000 }, async () => {
+    const device = new FakeDevice(UUID, KEY);
+    device.model = 'mop320';
+    const { Aedes } = await import('aedes');
+    const broker = await Aedes.createBroker();
+    const server = net.createServer(broker.handle);
+    const port = await listen(server);
+    const devClient = mqtt.connect('mqtt://127.0.0.1:' + port);
+    await new Promise((resolve) => devClient.on('connect', resolve));
+    await devClient.subscribeAsync('/appliance/' + UUID + '/subscribe');
+    devClient.on('message', (topic, buf) => {
+        const req = JSON.parse(buf.toString());
+        const res = device.handle(req);
+        if (res) {
+            devClient.publish(req.header.from, JSON.stringify(res));
+        }
+    });
+    const flow = [
+        { id: 'cfg', type: 'meross-config', mode: 'mqtt', broker: 'mqtt://127.0.0.1:' + port, timeout: 5 },
+        { id: 'all', type: 'meross-plug', server: 'cfg', uuid: UUID, channel: 0, interval: 0, electricity: true, consumption: true, state: true, wires: [['out']] },
+        { id: 'out1', type: 'meross-plug', server: 'cfg', uuid: UUID, channel: 1, interval: 0, electricity: true, consumption: true, state: true, wires: [['out']] },
+        { id: 'out', type: 'helper' }
+    ];
+    try {
+        await helper.load([configNode, plugNode], flow, { cfg: { key: KEY } });
+        const cfg = helper.getNode('cfg');
+        if (!cfg.isConnected()) {
+            await new Promise((resolve) => cfg.events.once('connect', resolve));
+        }
+        const out = helper.getNode('out');
+
+        let received = nextMessage(out);
+        helper.getNode('all').receive({ payload: 'read' });
+        let msg = await received;
+        // channel 0 = sum of both outlets
+        assert.strictEqual(msg.payload.power, 120.5);
+        assert.strictEqual(msg.payload.current, 0.54);
+        assert.strictEqual(msg.payload.voltage, 231.2);
+        assert.strictEqual(msg.payload.energy, 1500);
+        assert.strictEqual(msg.payload.channels.length, 2);
+        assert.strictEqual(msg.payload.energyToday, 15);
+        assert.strictEqual(msg.payload.onoff, true);
+
+        received = nextMessage(out);
+        helper.getNode('out1').receive({ payload: 'off' });
+        msg = await received;
+        assert.strictEqual(msg.payload.power, 0);
+        assert.strictEqual(msg.payload.voltage, 231.2);
+        assert.strictEqual(msg.payload.factor, 0.95);
+        assert.strictEqual(msg.payload.energyToday, 10);
+        assert.strictEqual(msg.payload.onoff, false);
+    } finally {
+        await helper.unload();
+        await devClient.endAsync(true);
+        await new Promise((resolve) => broker.close(resolve));
+        server.close();
+    }
+});

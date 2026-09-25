@@ -119,7 +119,11 @@
 </script>
 
 <script type="text/html" data-help-name="meross-plug">
-    <p>Reads power measurement data from a Meross smart plug (e.g. MSS310, MSS305, MSS315) and can switch it.</p>
+    <p>Reads power measurement data from a Meross smart plug (e.g. MSS310, MSS305, MSS315, MOP320) and can switch it.</p>
+    <p>On the first read the node asks the device for its abilities and then uses
+       <code>Appliance.Control.Electricity</code> or, on newer devices like the MOP320,
+       <code>Appliance.Control.ElectricityX</code>. On the MOP320 channel 0 switches both outlets
+       and reports the sum of both; channel 1 and 2 are the single outlets.</p>
 
     <h3>Inputs</h3>
     <dl class="message-properties">
@@ -142,6 +146,10 @@
                 <li><code>onoff</code> – switch state (<code>true</code>/<code>false</code>)</li>
                 <li><code>energyToday</code> – energy used today in Wh (if consumption is enabled)</li>
                 <li><code>consumption</code> – array of <code>{date, energy}</code> per day, energy in Wh</li>
+                <li><code>energy</code> – energy counter in Wh (newer devices like MOP320)</li>
+                <li><code>factor</code> – power factor (newer devices)</li>
+                <li><code>channels</code> – per-outlet values on multi-outlet devices (MOP320: channels 1 and 2)</li>
+                <li><code>consumptionHourly</code> – hourly consumption (devices with <code>ConsumptionH</code>)</li>
                 <li><code>channel</code>, <code>timestamp</code></li>
             </ul>
         </dd>

@@ -212,7 +212,7 @@ module.exports = function (RED) {
             });
         }
 
-        node.request = async function (device, method, namespace, payload) {
+        node.request = async function (device, method, namespace, payload, timeout) {
             let transport;
             if (node.mode === 'cloud') {
                 if (!node.session || !cloudAppId) {
@@ -226,7 +226,7 @@ module.exports = function (RED) {
                     throw new Error('Meross connection not ready');
                 }
             }
-            return transport.request(device, method, namespace, payload, node.timeout);
+            return transport.request(device, method, namespace, payload, timeout || node.timeout);
         };
 
         node.isConnected = function () {

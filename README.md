@@ -1,6 +1,6 @@
 # node-red-contrib-meross-mqtt
 
-Node-RED-Nodes zum Auslesen von **Meross-Steckdosen mit Strommessung** (z. B. MSS310, MSS305, MSS315)
+Node-RED-Nodes zum Auslesen von **Meross-Steckdosen mit Strommessung** (z. B. MSS310, MSS305, MSS315, MOP320)
 – Leistung, Spannung, Strom, Tagesverbrauch und Schaltzustand. Die Steckdose kann außerdem geschaltet werden.
 
 Drei Verbindungsarten werden unterstützt:
@@ -57,6 +57,10 @@ Cloud-Logins werden im Speicher zwischengespeichert, damit nicht bei jedem Deplo
 
 Einheiten: `power` W, `voltage` V, `current` A, `energyToday`/`energy` Wh.
 
+Neuere Geräte (z. B. **MOP320**) liefern zusätzlich `energy` (Zählerstand in Wh), `factor` (Leistungsfaktor),
+`channels` (Werte je Steckplatz) und `consumptionHourly` (stündlicher Verbrauch).
+Beim MOP320 schaltet Kanal `0` beide Steckplätze und liefert die Summe; Kanal `1` und `2` sind die einzelnen Steckplätze.
+
 `msg.topic` ist der Node-Name (oder die UUID). Meldet das Gerät eine Zustandsänderung (Push über MQTT),
 wird eine Nachricht mit `msg.event = "push"` ausgegeben.
 
@@ -82,7 +86,11 @@ Unter *Import → Examples → node-red-contrib-meross-mqtt* gibt es den Flow `p
 Meross-Geräte sprechen JSON mit einem Header (`messageId`, `namespace`, `method`, `timestamp`, `sign`).
 Die Signatur ist `md5(messageId + key + timestamp)`. Verwendete Namespaces:
 
+- `Appliance.System.Ability` – welche Namespaces das Gerät unterstützt (wird beim ersten Lesen abgefragt)
 - `Appliance.Control.Electricity` – aktuelle Leistung (mW), Spannung (dV), Strom (mA)
+- `Appliance.Control.ElectricityX` – neuere Geräte: Leistung (mW), Spannung (mV), Strom (mA), Zähler (Wh);
+  das Anfrageformat wird beim ersten Lesen durch Ausprobieren ermittelt
+- `Appliance.Control.ConsumptionH` – stündlicher Verbrauch (Wh) bei neueren Geräten
 - `Appliance.Control.ConsumptionX` (bzw. `Appliance.Control.Consumption`) – Tagesverbrauch in Wh
 - `Appliance.System.All` – Schaltzustand
 - `Appliance.Control.ToggleX` (bzw. `Appliance.Control.Toggle`) – Schalten
